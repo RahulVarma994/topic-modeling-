@@ -1,0 +1,124 @@
+---
+title: "Rahul Varma - 17125760064"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+---
+
+```{r}
+library(ggplot2)
+library(tm)
+library(dplyr)
+library(ggplot2)
+library(shiny)
+library(shinydashboard)
+library(pdftools)
+library(topicmodels)
+library(tidytext)
+library(LSAfun)
+library(lexRankr)
+library(plotly)
+```
+
+Sidebar {.sidebar}
+=======================================
+```{r}
+  sliderInput(inputId = "totaltopics",
+              label = "Total Topics:",
+              min = 1, max = 10,
+              value = 5)
+```
+
+Text Summarization
+=======================================
+
+Row
+---------------------------------------
+```{r}
+  textOutput("text_book_summary")
+```
+
+
+```{r}
+  book = pdf_text("D:/unstructured data/Half Girlfriend.pdf")
+```
+
+```{r}
+  corpus <- VCorpus(VectorSource(na.omit(book)))
+  corpus <- tm_map(corpus,content_transformer(tolower))
+  apply_regex <- function(x) gsub('[^a-z ]', '', x)
+  corpus <- tm_map(corpus,content_transformer(apply_regex))
+   custom_stop_words = c('will', 'said', "dont", "can", "shall", "must")
+   custom_stop_words <- c(tm::stopwords(kind="en"),custom_stop_words)
+   corpus <- tm_map(corpus,removeWords,custom_stop_words)
+  dtm <- DocumentTermMatrix(corpus)
+  dtm_df <- as.data.frame(as.matrix(dtm))
+  dtm_nonzero = dtm[rowSums(dtm_df)>0,]
+  dtm_nonsparse = removeSparseTerms(dtm_nonzero, sparse = 0.98)
+ output$plot_word_per_topic <- renderPlot({
+    lda.out = LDA(dtm_nonsparse,as.numeric(input$totaltopics),
+                  method = "Gibbs")
+    word2topic = tidy(lda.out, matrix = "beta")
+    word2topic %>%
+      group_by(topic) %>% 
+      arrange(topic,-beta) %>% 
+      top_n(5) -> first
+    first %>%ggplot(aes(x = as.factor(topic),y = beta,fill = term)) +geom_bar(stat = "identity") -> first.plot
+    plot(first.plot)
+ })
+  
+  output$plot_page_per_topic <- renderPlot({  
+    lda.out = LDA(dtm_nonsparse, as.numeric(input$totaltopics), method = "Gibbs")
+    doc2topic = tidy(lda.out, matrix = "gamma")
+    doc2topic %>%group_by(topic) %>%summarise(Total_Pages = n_distinct(document))  -> second
+    second %>% ggplot(aes(x = topic, y = Total_Pages,fill = Total_Pages)) + geom_bar(stat = "identity") -> second.plot
+       plot(second.plot)
+  })
+
+  output$plot_document_cluster <- renderPlot({  
+    k_model <- kmeans(dtm,as.numeric(input$totaltopics))
+    k_df<-cbind(dtm, k_model$cluster)
+    as.data.frame(table(k_model$cluster)) -> k_tab_df
+    colnames(k_tab_df) <- c("Cluster", "Frequency")
+    k_tab_df %>% 
+      ggplot(aes(x = Cluster, y = Frequency, fill = -Frequency)) +geom_bar(stat = "identity") -> thrid.plot
+    plot(thrid.plot)
+  
+  })
+  file = paste(book)
+  file = file[1:10]
+  top_15 = lexRank(file, docId = rep(1, length(file)), n = 15, continuous = TRUE)
+  order_of_appearance = order(as.integer(gsub("_","",top_15$sentenceId)))
+  ordered_top_15 = top_15[order_of_appearance, "sentence"]
+  output$text_book_summary <- renderText({
+    paste(ordered_top_15,collapse=" ")
+  })
+```
+
+
+Words wise Topic
+=======================================
+
+Row
+---------------------------------------
+```{r}
+  plotOutput("plot_word_per_topic")
+```
+
+Page wise Topic 
+=======================================
+
+Row
+---------------------------------------
+```{r}
+  plotOutput("plot_page_per_topic")
+```
+
+Row
+---------------------------------------
+```{r}
+  plotOutput("plot_document_cluster")
+```
+
+
